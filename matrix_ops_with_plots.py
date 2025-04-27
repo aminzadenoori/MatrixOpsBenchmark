@@ -2,7 +2,13 @@ import numpy as np
 import scipy.sparse as sp
 import matplotlib.pyplot as plt
 import time
+import platform
 from pathlib import Path
+
+# Get operating system name
+os_name = platform.system()  # e.g., "Windows", "Linux", "Darwin" (macOS)
+if os_name == "Darwin":
+    os_name = "macOS"
 
 cp = None
 # Try to import CuPy; fall back to NumPy if not available
@@ -392,26 +398,24 @@ operations = [
 # Create output directory for plots
 Path("plots").mkdir(exist_ok=True)
 
-# Plot dense matrix timing results (relative to CPU F64)
+# Plot dense matrix timing results (absolute times with CPU F64 reference)
 plt.figure(figsize=(15, 10))
 for i, (op_key, op_name) in enumerate(operations, 1):
     plt.subplot(2, 3, i)
-    plt.title(f"{op_name} (Relative Time)")
+    plt.title(f"{op_name} on {os_name} (Time)")
     plt.xlabel("Matrix size n×n")
-    plt.ylabel("Time relative to CPU F64")
+    plt.ylabel("Time (seconds, log-scale)")
+    plt.yscale("log")
     plt.xticks(matrix_sizes)
     
     ref_times = reference_times["dense"][op_key]
+    plt.plot(matrix_sizes, ref_times, marker='x', label="CPU F64 Reference", color="black", linestyle='--')
     if xp == cp:
-        plt.plot(matrix_sizes, [t / r if r > 0 else 1 for t, r in zip(timings[op_key]["GPU_F32"], ref_times)], 
-                 marker='o', label="GPU F32", color="blue")
-        plt.plot(matrix_sizes, [t / r if r > 0 else 1 for t, r in zip(timings[op_key]["GPU_F64"], ref_times)], 
-                 marker='^', label="GPU F64", color="red")
-        plt.plot(matrix_sizes, [t / r if r > 0 else 1 for t, r in zip(timings[op_key]["CPU_F32"], ref_times)], 
-                 marker='s', label="CPU F32", color="purple")
+        plt.plot(matrix_sizes, timings[op_key]["GPU_F32"], marker='o', label="GPU F32", color="blue")
+        plt.plot(matrix_sizes, timings[op_key]["GPU_F64"], marker='^', label="GPU F64", color="red")
+        plt.plot(matrix_sizes, timings[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
     else:
-        plt.plot(matrix_sizes, [t / r if r > 0 else 1 for t, r in zip(timings[op_key]["CPU_F32"], ref_times)], 
-                 marker='s', label="CPU F32", color="purple")
+        plt.plot(matrix_sizes, timings[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
     
     plt.legend()
     plt.grid(True, which="both", ls="--")
@@ -424,7 +428,7 @@ plt.close()
 plt.figure(figsize=(15, 10))
 for i, (op_key, op_name) in enumerate(operations, 1):
     plt.subplot(2, 3, i)
-    plt.title(f"{op_name} (Relative Error)")
+    plt.title(f"{op_name} on {os_name} (Relative Error)")
     plt.xlabel("Matrix size n×n")
     plt.ylabel("Relative Error (log-scale)")
     plt.yscale("log")
@@ -444,31 +448,27 @@ plt.tight_layout()
 plt.savefig("plots/dense_matrix_accuracy_results.png")
 plt.close()
 
-# Plot sparse matrix timing results (relative to CPU F64)
+# Plot sparse matrix timing results (absolute times with CPU F64 reference)
 plt.figure(figsize=(15, 7))
 sparse_operations = operations[:4]  # Exclude inverse and SVD for sparse
 for i, (op_key, op_name) in enumerate(sparse_operations, 1):
     plt.subplot(2, 2, i)
-    plt.title(f"{op_name} (Sparse, Relative Time)")
+    plt.title(f"{op_name} on {os_name} (Sparse, Time)")
     plt.xlabel("Matrix size n×n")
-    plt.ylabel("Time relative to CPU F64")
+    plt.ylabel("Time (seconds, log-scale)")
+    plt.yscale("log")
     plt.xticks(matrix_sizes)
     
     ref_times = reference_times["sparse"][op_key]
+    plt.plot(matrix_sizes, ref_times, marker='x', label="CPU F64 Reference", color="black", linestyle='--')
     if xp == cp:
-        plt.plot(matrix_sizes, [t / r if r > 0 else 1 for t, r in zip(sparse_timings[op_key]["GPU_F32"], ref_times)], 
-                 marker='o', label="GPU F32", color="blue")
-        plt.plot(matrix_sizes, [t / r if r > 0 else 1 for t, r in zip(sparse_timings[op_key]["GPU_F64"], ref_times)], 
-                 marker='^', label="GPU F64", color="red")
-        plt.plot(matrix_sizes, [t / r if r > 0 else 1 for t, r in zip(sparse_timings[op_key]["CPU_F32"], ref_times)], 
-                 marker='s', label="CPU F32", color="purple")
-        plt.plot(matrix_sizes, [t / r if r > 0 else 1 for t, r in zip(sparse_timings[op_key]["CPU_F64"], ref_times)], 
-                 marker='d', label="CPU F64", color="green")
+        plt.plot(matrix_sizes, sparse_timings[op_key]["GPU_F32"], marker='o', label="GPU F32", color="blue")
+        plt.plot(matrix_sizes, sparse_timings[op_key]["GPU_F64"], marker='^', label="GPU F64", color="red")
+        plt.plot(matrix_sizes, sparse_timings[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
+        plt.plot(matrix_sizes, sparse_timings[op_key]["CPU_F64"], marker='d', label="CPU F64", color="green")
     else:
-        plt.plot(matrix_sizes, [t / r if r > 0 else 1 for t, r in zip(sparse_timings[op_key]["CPU_F32"], ref_times)], 
-                 marker='s', label="CPU F32", color="purple")
-        plt.plot(matrix_sizes, [t / r if r > 0 else 1 for t, r in zip(sparse_timings[op_key]["CPU_F64"], ref_times)], 
-                 marker='d', label="CPU F64", color="green")
+        plt.plot(matrix_sizes, sparse_timings[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
+        plt.plot(matrix_sizes, sparse_timings[op_key]["CPU_F64"], marker='d', label="CPU F64", color="green")
     
     plt.legend()
     plt.grid(True, which="both", ls="--")
@@ -481,7 +481,7 @@ plt.close()
 plt.figure(figsize=(15, 7))
 for i, (op_key, op_name) in enumerate(sparse_operations, 1):
     plt.subplot(2, 2, i)
-    plt.title(f"{op_name} (Sparse, Relative Error)")
+    plt.title(f"{op_name} on {os_name} (Sparse, Relative Error)")
     plt.xlabel("Matrix size n×n")
     plt.ylabel("Relative Error (log-scale)")
     plt.yscale("log")
