@@ -4,13 +4,50 @@ import matplotlib.pyplot as plt
 import time
 import platform
 from pathlib import Path
+import subprocess
 
 # Get operating system name
 os_name = platform.system()  # e.g., "Windows", "Linux", "Darwin" (macOS)
 if os_name == "Darwin":
     os_name = "macOS"
 
+try:
+    if os_name == "Windows":
+        result = subprocess.check_output("wmic cpu get name", shell=True).decode().strip()
+        cpu_model = result.split("\n")[1].strip()
+    elif os_name == "Linux":
+        result = subprocess.check_output("lscpu | grep 'Model name'", shell=True).decode().strip()
+        cpu_model = result.split(":")[1].strip()
+    elif os_name == "macOS":
+        result = subprocess.check_output("sysctl -n machdep.cpu.brand_string", shell=True).decode().strip()
+        cpu_model = result
+    else:
+        cpu_model = platform.processor() or "Unknown CPU"
+    
+except Exception:
+    cpu_model="Unknown CPU"
+print(cpu_model)
+
+# Get GPU model (if CuPy is available)
+gpu_model = "No GPU (CPU only)"
 cp = None
+try:
+    import cupy as cp
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        device_count = pynvml.nvmlDeviceGetCount()
+        if device_count > 0:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            gpu_model = pynvml.nvmlDeviceGetName(handle).decode('utf-8')
+        pynvml.nvmlShutdown()
+    except:
+        # Fallback to CuPy's device name if pynvml is unavailable
+        if cp.cuda.runtime.getDeviceCount() > 0:
+            gpu_model = f"CUDA Device {cp.cuda.runtime.getDevice()}"
+except ImportError:
+    pass
+
 # Try to import CuPy; fall back to NumPy if not available
 try:
     import cupy as cp
@@ -402,7 +439,7 @@ Path("plots").mkdir(exist_ok=True)
 plt.figure(figsize=(15, 10))
 for i, (op_key, op_name) in enumerate(operations, 1):
     plt.subplot(2, 3, i)
-    plt.title(f"{op_name} on {os_name} (Time)")
+    plt.title(f"{op_name} on {os_name}\nCPU: {cpu_model}, GPU: {gpu_model} (Time)")
     plt.xlabel("Matrix size n×n")
     plt.ylabel("Time (seconds, log-scale)")
     plt.yscale("log")
@@ -428,7 +465,7 @@ plt.close()
 plt.figure(figsize=(15, 10))
 for i, (op_key, op_name) in enumerate(operations, 1):
     plt.subplot(2, 3, i)
-    plt.title(f"{op_name} on {os_name} (Relative Error)")
+    plt.title(f"{op_name} on {os_name}\nCPU: {cpu_model}, GPU: {gpu_model} (Relative Error)")
     plt.xlabel("Matrix size n×n")
     plt.ylabel("Relative Error (log-scale)")
     plt.yscale("log")
@@ -453,7 +490,7 @@ plt.figure(figsize=(15, 7))
 sparse_operations = operations[:4]  # Exclude inverse and SVD for sparse
 for i, (op_key, op_name) in enumerate(sparse_operations, 1):
     plt.subplot(2, 2, i)
-    plt.title(f"{op_name} on {os_name} (Sparse, Time)")
+    plt.title(f"{op_name} on {os_name}\nCPU: {cpu_model}, GPU: {gpu_model} (Sparse, Time)")
     plt.xlabel("Matrix size n×n")
     plt.ylabel("Time (seconds, log-scale)")
     plt.yscale("log")
@@ -481,7 +518,7 @@ plt.close()
 plt.figure(figsize=(15, 7))
 for i, (op_key, op_name) in enumerate(sparse_operations, 1):
     plt.subplot(2, 2, i)
-    plt.title(f"{op_name} on {os_name} (Sparse, Relative Error)")
+    plt.title(f"{op_name} on {os_name}\nCPU: {cpu_model}, GPU: {gpu_model} (Sparse, Relative Error)")
     plt.xlabel("Matrix size n×n")
     plt.ylabel("Relative Error (log-scale)")
     plt.yscale("log")
