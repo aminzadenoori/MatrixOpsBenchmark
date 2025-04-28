@@ -1,5 +1,3 @@
-markdown
-
 # MatrixOpsBenchmark
 
 This repository contains a Python script to benchmark matrix operations for statistical analysis across different platforms (NVIDIA GPUs, Intel CPUs, Apple M3), precisions (F32, F64), and matrix types (sparse, non-sparse). It generates performance plots similar to those used in computational studies, comparing execution times for various operations over a range of matrix sizes.
