@@ -5,9 +5,10 @@ import time
 import platform
 from pathlib import Path
 import subprocess
+from sklearn.utils.extmath import randomized_svd
 
 # Get operating system name
-os_name = platform.system()  # e.g., "Windows", "Linux", "Darwin" (macOS)
+os_name = platform.system()
 if os_name == "Darwin":
     os_name = "macOS"
 
@@ -23,9 +24,8 @@ try:
         cpu_model = result
     else:
         cpu_model = platform.processor() or "Unknown CPU"
-    
 except Exception:
-    cpu_model="Unknown CPU"
+    cpu_model = "Unknown CPU"
 print(cpu_model)
 
 # Get GPU model (if CuPy is available)
@@ -42,7 +42,6 @@ try:
             gpu_model = pynvml.nvmlDeviceGetName(handle).decode('utf-8')
         pynvml.nvmlShutdown()
     except:
-        # Fallback to CuPy's device name if pynvml is unavailable
         if cp.cuda.runtime.getDeviceCount() > 0:
             gpu_model = f"CUDA Device {cp.cuda.runtime.getDevice()}"
 except ImportError:
@@ -51,16 +50,17 @@ except ImportError:
 # Try to import CuPy; fall back to NumPy if not available
 try:
     import cupy as cp
-    xp = cp  # Use CuPy for GPU if available
+    xp = cp
     print("Using CuPy (GPU)")
 except ImportError:
-    xp = np  # Fall back to NumPy (CPU)
+    xp = np
     print("Using NumPy (CPU)")
 
 # Matrix sizes to test
 matrix_sizes = [1000, 2000, 3000, 4000, 5000]
+num_runs = 10  # Number of runs for each experiment
 
-# Reference results (F64 on CPU for dense and sparse), matrices, and times
+# Reference results, matrices, and times
 reference_results = {}
 reference_matrices = {}
 reference_times = {
@@ -68,64 +68,62 @@ reference_times = {
         "elemwise": [], "exp": [], "mean": [], "matprod": [], "inv": [], "svd": []
     },
     "sparse": {
-        "elemwise": [], "exp": [], "mean": [], "matprod": []
+        "elemwise": [], "exp": [], "mean": [], "matprod": [], "svd": []
     }
 }
 
-# Timing results for plotting (exclude CPU_F64 for dense since it's the reference)
+# Timing results (list of lists for multiple runs)
 timings = {
-    "elemwise": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
-    "exp": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
-    "mean": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
-    "matprod": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
-    "inv": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
-    "svd": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
+    "elemwise": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
+    "exp": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
+    "mean": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
+    "matprod": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
+    "inv": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
+    "svd": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
 }
 
-# Sparse timing results (include CPU_F64 since F64 sparse is experimented)
 sparse_timings = {
-    "elemwise": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": [], "CPU_F64": []},
-    "exp": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": [], "CPU_F64": []},
-    "mean": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": [], "CPU_F64": []},
-    "matprod": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": [], "CPU_F64": []},
+    "elemwise": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes], "CPU_F64": [[] for _ in matrix_sizes]},
+    "exp": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes], "CPU_F64": [[] for _ in matrix_sizes]},
+    "mean": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes], "CPU_F64": [[] for _ in matrix_sizes]},
+    "matprod": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes], "CPU_F64": [[] for _ in matrix_sizes]},
+    "svd": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes], "CPU_F64": [[] for _ in matrix_sizes]},
 }
 
-# Error results for plotting (relative errors vs CPU F64 reference)
+# Error results
 errors = {
-    "elemwise": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
-    "exp": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
-    "mean": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
-    "matprod": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
-    "inv": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
-    "svd": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": []},
+    "elemwise": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
+    "exp": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
+    "mean": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
+    "matprod": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
+    "inv": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
+    "svd": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes]},
 }
 
-# Sparse error results
 sparse_errors = {
-    "elemwise": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": [], "CPU_F64": []},
-    "exp": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": [], "CPU_F64": []},
-    "mean": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": [], "CPU_F64": []},
-    "matprod": {"GPU_F32": [], "GPU_F64": [], "CPU_F32": [], "CPU_F64": []},
+    "elemwise": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes], "CPU_F64": [[] for _ in matrix_sizes]},
+    "exp": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes], "CPU_F64": [[] for _ in matrix_sizes]},
+    "mean": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes], "CPU_F64": [[] for _ in matrix_sizes]},
+    "matprod": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes], "CPU_F64": [[] for _ in matrix_sizes]},
+    "svd": {"GPU_F32": [[] for _ in matrix_sizes], "GPU_F64": [[] for _ in matrix_sizes], "CPU_F32": [[] for _ in matrix_sizes], "CPU_F64": [[] for _ in matrix_sizes]},
 }
 
 # Function to convert between CuPy and NumPy arrays
 def to_numpy(array):
     if xp == cp:
-        return array.get()  # Transfer CuPy array to NumPy
+        return array.get()
     return array
 
-# Function to run experiments for a given precision and matrix type
-def run_experiments(dtype, label, sparse=False, size_idx=0):
-    print(f"\nRunning experiments with {label} precision {'(sparse)' if sparse else '(non-sparse)'}...")
+# Function to run experiments
+def run_experiments(dtype, label, sparse=False, size_idx=0, run_idx=0):
+    print(f"\nRun {run_idx+1}/{num_runs} with {label} {'(sparse)' if sparse else '(non-sparse)'}...")
     timings_dict = sparse_timings if sparse else timings
     errors_dict = sparse_errors if sparse else errors
     N = matrix_sizes[size_idx]
-    print(f"\nMatrix size: {N}x{N}")
+    print(f"Matrix size: {N}x{N}")
     
-    # Retrieve reference matrices
     A_ref, B_ref = reference_matrices[f"matrices_{N}_{'sparse' if sparse else 'dense'}"]
     
-    # Convert matrices to the appropriate dtype and device
     if sparse:
         A = A_ref.astype(dtype)
         B = B_ref.astype(dtype)
@@ -145,15 +143,13 @@ def run_experiments(dtype, label, sparse=False, size_idx=0):
     if xp == cp:
         cp.cuda.Stream.null.synchronize()
     elemwise_time = time.time() - start
-    print(f"Element-wise product time: {elemwise_time:.4f} seconds")
     C_ref = reference_results[f"elemwise_{N}_{'sparse' if sparse else 'dense'}"]
     C_np = to_numpy(C.todense() if sparse else C)
     error = np.linalg.norm(C_np - C_ref) / np.linalg.norm(C_ref) if np.linalg.norm(C_ref) > 0 else 0
-    print(f"Relative error vs CPU F64: {error:.6e}")
-    timings_dict["elemwise"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(elemwise_time)
-    errors_dict["elemwise"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(error)
+    timings_dict["elemwise"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(elemwise_time)
+    errors_dict["elemwise"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(error)
 
-    # 2. Exponential of each element
+    # 2. Exponential
     start = time.time()
     if sparse:
         expA = A.copy()
@@ -163,13 +159,11 @@ def run_experiments(dtype, label, sparse=False, size_idx=0):
     if xp == cp:
         cp.cuda.Stream.null.synchronize()
     exp_time = time.time() - start
-    print(f"Exponential time: {exp_time:.4f} seconds")
     expA_ref = reference_results[f"exp_{N}_{'sparse' if sparse else 'dense'}"]
     expA_np = to_numpy(expA.todense() if sparse else expA)
     error = np.linalg.norm(expA_np - expA_ref) / np.linalg.norm(expA_ref) if np.linalg.norm(expA_ref) > 0 else 0
-    print(f"Relative error vs CPU F64: {error:.6e}")
-    timings_dict["exp"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(exp_time)
-    errors_dict["exp"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(error)
+    timings_dict["exp"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(exp_time)
+    errors_dict["exp"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(error)
 
     # 3. Means of the rows
     start = time.time()
@@ -180,88 +174,68 @@ def run_experiments(dtype, label, sparse=False, size_idx=0):
     if xp == cp:
         cp.cuda.Stream.null.synchronize()
     mean_time = time.time() - start
-    print(f"Means of rows time: {mean_time:.4f} seconds")
     meanRows_ref = reference_results[f"mean_{N}_{'sparse' if sparse else 'dense'}"]
     meanRows_np = to_numpy(meanRows)
     error = np.linalg.norm(meanRows_np - meanRows_ref) / np.linalg.norm(meanRows_ref) if np.linalg.norm(meanRows_ref) > 0 else 0
-    print(f"Relative error vs CPU F64: {error:.6e}")
-    timings_dict["mean"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(mean_time)
-    errors_dict["mean"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(error)
+    timings_dict["mean"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(mean_time)
+    errors_dict["mean"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(error)
 
-    # 4. Matrix product (C = A * B)
+    # 4. Matrix product
     start = time.time()
     C = A @ B
     if xp == cp:
         cp.cuda.Stream.null.synchronize()
     matprod_time = time.time() - start
-    print(f"Matrix product time: {matprod_time:.4f} seconds")
     C_ref = reference_results[f"matprod_{N}_{'sparse' if sparse else 'dense'}"]
     C_np = to_numpy(C.todense() if sparse else C)
     error = np.linalg.norm(C_np - C_ref) / np.linalg.norm(C_ref) if np.linalg.norm(C_ref) > 0 else 0
-    print(f"Relative error vs CPU F64: {error:.6e}")
-    timings_dict["matprod"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(matprod_time)
-    errors_dict["matprod"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(error)
+    timings_dict["matprod"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(matprod_time)
+    errors_dict["matprod"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(error)
 
-    # 5. Inverse of a matrix (only for non-sparse)
+    # 5. Inverse (non-sparse)
     if not sparse:
         start = time.time()
         invA = xp.linalg.inv(A)
         if xp == cp:
             cp.cuda.Stream.null.synchronize()
         inv_time = time.time() - start
-        print(f"Matrix inverse time: {inv_time:.4f} seconds")
         invA_ref = reference_results[f"inv_{N}_dense"]
         invA_np = to_numpy(invA)
         error = np.linalg.norm(invA_np - invA_ref) / np.linalg.norm(invA_ref) if np.linalg.norm(invA_ref) > 0 else 0
-        print(f"Relative error vs CPU F64: {error:.6e}")
-        timings["inv"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(inv_time)
-        errors["inv"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(error)
-    else:
-        print("Matrix inverse skipped for sparse matrices.")
+        timings["inv"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(inv_time)
+        errors["inv"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(error)
 
-    # 6. Singular Value Decomposition (SVD) (only for non-sparse)
-    if not sparse:
-        start = time.time()
-        U, S, VT = xp.linalg.svd(A, full_matrices=True)
-        if xp == cp:
-            cp.cuda.Stream.null.synchronize()
-        svd_time = time.time() - start
-        print(f"SVD time: {svd_time:.4f} seconds")
-        S_ref = reference_results[f"svd_S_{N}_dense"]
-        S_np = to_numpy(S)
-        error = np.linalg.norm(S_np - S_ref) / np.linalg.norm(S_ref) if np.linalg.norm(S_ref) > 0 else 0
-        print(f"SVD (S) relative error vs CPU F64: {error:.6e}")
-        timings["svd"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(svd_time)
-        errors["svd"][f"{'GPU' if xp == cp else 'CPU'}_{label}"].append(error)
-    else:
-        print("SVD skipped for sparse matrices.")
+    # 6. Randomized SVD (both dense and sparse)
+    start = time.time()
+    A_np = to_numpy(A.todense() if sparse else A)
+    n_components = min(N, 100)  # Adjust based on matrix size
+    U, S, VT = randomized_svd(A_np, n_components=n_components, random_state=run_idx)
+    svd_time = time.time() - start
+    S_ref = reference_results[f"svd_S_{N}_{'sparse' if sparse else 'dense'}"][:n_components]
+    error = np.linalg.norm(S - S_ref) / np.linalg.norm(S_ref) if np.linalg.norm(S_ref) > 0 else 0
+    timings_dict["svd"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(svd_time)
+    errors_dict["svd"][f"{'GPU' if xp == cp else 'CPU'}_{label}"][size_idx].append(error)
 
-    # CPU F32 execution for comparison (only if running on GPU)
+    # CPU F32 comparison
     if xp == cp:
-        print("\nRunning CPU F32 for comparison...")
         A_np = A_ref.astype(np.float32)
         B_np = B_ref.astype(np.float32)
         if sparse:
             A_np = sp.csr_matrix(A_np)
             B_np = sp.csr_matrix(B_np)
 
-        # 1. Element-wise product
         start = time.time()
         if sparse:
             C_np = A_np.multiply(B_np)
         else:
             C_np = A_np * B_np
         cpu_elemwise_time = time.time() - start
-        print(f"CPU F32 Element-wise product time: {cpu_elemwise_time:.4f} seconds")
-        print(f"Speedup (GPU vs CPU): {cpu_elemwise_time / elemwise_time:.2f}x")
         C_ref = reference_results[f"elemwise_{N}_{'sparse' if sparse else 'dense'}"]
         C_np = C_np.todense() if sparse else C_np
         error = np.linalg.norm(C_np - C_ref) / np.linalg.norm(C_ref) if np.linalg.norm(C_ref) > 0 else 0
-        print(f"CPU F32 Relative error vs CPU F64: {error:.6e}")
-        timings_dict["elemwise"]["CPU_F32"].append(cpu_elemwise_time)
-        errors_dict["elemwise"]["CPU_F32"].append(error)
+        timings_dict["elemwise"]["CPU_F32"][size_idx].append(cpu_elemwise_time)
+        errors_dict["elemwise"]["CPU_F32"][size_idx].append(error)
 
-        # 2. Exponential
         start = time.time()
         if sparse:
             expA_np = A_np.copy()
@@ -269,71 +243,52 @@ def run_experiments(dtype, label, sparse=False, size_idx=0):
         else:
             expA_np = np.exp(A_np)
         cpu_exp_time = time.time() - start
-        print(f"CPU F32 Exponential time: {cpu_exp_time:.4f} seconds")
-        print(f"Speedup (GPU vs CPU): {cpu_exp_time / exp_time:.2f}x")
         expA_ref = reference_results[f"exp_{N}_{'sparse' if sparse else 'dense'}"]
         expA_np = expA_np.todense() if sparse else expA_np
         error = np.linalg.norm(expA_np - expA_ref) / np.linalg.norm(expA_ref) if np.linalg.norm(expA_ref) > 0 else 0
-        print(f"CPU F32 Relative error vs CPU F64: {error:.6e}")
-        timings_dict["exp"]["CPU_F32"].append(cpu_exp_time)
-        errors_dict["exp"]["CPU_F32"].append(error)
+        timings_dict["exp"]["CPU_F32"][size_idx].append(cpu_exp_time)
+        errors_dict["exp"]["CPU_F32"][size_idx].append(error)
 
-        # 3. Means of the rows
         start = time.time()
         if sparse:
             meanRows_np = np.array(A_np.mean(axis=1)).flatten()
         else:
             meanRows_np = np.mean(A_np, axis=1)
         cpu_mean_time = time.time() - start
-        print(f"CPU F32 Means of rows time: {cpu_mean_time:.4f} seconds")
-        print(f"Speedup (GPU vs CPU): {cpu_mean_time / mean_time:.2f}x")
         meanRows_ref = reference_results[f"mean_{N}_{'sparse' if sparse else 'dense'}"]
         error = np.linalg.norm(meanRows_np - meanRows_ref) / np.linalg.norm(meanRows_ref) if np.linalg.norm(meanRows_ref) > 0 else 0
-        print(f"CPU F32 Relative error vs CPU F64: {error:.6e}")
-        timings_dict["mean"]["CPU_F32"].append(cpu_mean_time)
-        errors_dict["mean"]["CPU_F32"].append(error)
+        timings_dict["mean"]["CPU_F32"][size_idx].append(cpu_mean_time)
+        errors_dict["mean"]["CPU_F32"][size_idx].append(error)
 
-        # 4. Matrix product
         start = time.time()
         C_np = A_np @ B_np
         cpu_matprod_time = time.time() - start
-        print(f"CPU F32 Matrix product time: {cpu_matprod_time:.4f} seconds")
-        print(f"Speedup (GPU vs CPU): {cpu_matprod_time / matprod_time:.2f}x")
         C_ref = reference_results[f"matprod_{N}_{'sparse' if sparse else 'dense'}"]
         C_np = C_np.todense() if sparse else C_np
         error = np.linalg.norm(C_np - C_ref) / np.linalg.norm(C_ref) if np.linalg.norm(C_ref) > 0 else 0
-        print(f"CPU F32 Relative error vs CPU F64: {error:.6e}")
-        timings_dict["matprod"]["CPU_F32"].append(cpu_matprod_time)
-        errors_dict["matprod"]["CPU_F32"].append(error)
+        timings_dict["matprod"]["CPU_F32"][size_idx].append(cpu_matprod_time)
+        errors_dict["matprod"]["CPU_F32"][size_idx].append(error)
 
-        # 5. Inverse (non-sparse only)
         if not sparse:
             start = time.time()
             invA_np = np.linalg.inv(A_np)
             cpu_inv_time = time.time() - start
-            print(f"CPU F32 Matrix inverse time: {cpu_inv_time:.4f} seconds")
-            print(f"Speedup (GPU vs CPU): {cpu_inv_time / inv_time:.2f}x")
             invA_ref = reference_results[f"inv_{N}_dense"]
             error = np.linalg.norm(invA_np - invA_ref) / np.linalg.norm(invA_ref) if np.linalg.norm(invA_ref) > 0 else 0
-            print(f"CPU F32 Relative error vs CPU F64: {error:.6e}")
-            timings["inv"]["CPU_F32"].append(cpu_inv_time)
-            errors["inv"]["CPU_F32"].append(error)
+            timings["inv"]["CPU_F32"][size_idx].append(cpu_inv_time)
+            errors["inv"]["CPU_F32"][size_idx].append(error)
 
-        # 6. SVD (non-sparse only)
-        if not sparse:
-            start = time.time()
-            U_np, S_np, VT_np = np.linalg.svd(A_np, full_matrices=True)
-            cpu_svd_time = time.time() - start
-            print(f"CPU F32 SVD time: {cpu_svd_time:.4f} seconds")
-            print(f"Speedup (GPU vs CPU): {cpu_svd_time / svd_time:.2f}x")
-            S_ref = reference_results[f"svd_S_{N}_dense"]
-            error = np.linalg.norm(S_np - S_ref) / np.linalg.norm(S_ref) if np.linalg.norm(S_ref) > 0 else 0
-            print(f"CPU F32 Relative error vs CPU F64: {error:.6e}")
-            timings["svd"]["CPU_F32"].append(cpu_svd_time)
-            errors["svd"]["CPU_F32"].append(error)
+        start = time.time()
+        A_np_dense = A_np.todense() if sparse else A_np
+        U_np, S_np, VT_np = randomized_svd(A_np_dense, n_components=n_components, random_state=run_idx)
+        cpu_svd_time = time.time() - start
+        S_ref = reference_results[f"svd_S_{N}_{'sparse' if sparse else 'dense'}"][:n_components]
+        error = np.linalg.norm(S_np - S_ref) / np.linalg.norm(S_ref) if np.linalg.norm(S_ref) > 0 else 0
+        timings_dict["svd"]["CPU_F32"][size_idx].append(cpu_svd_time)
+        errors_dict["svd"]["CPU_F32"][size_idx].append(error)
 
-# Generate CPU F64 reference results, store matrices, and measure times
-print("Generating CPU F64 reference results, storing matrices, and measuring times...")
+# Generate CPU F64 reference results
+print("Generating CPU F64 reference results...")
 for N in matrix_sizes:
     for sparse in [False, True]:
         if sparse:
@@ -341,86 +296,68 @@ for N in matrix_sizes:
             B = sp.random(N, N, density=0.01, format='csr', dtype=np.float64)
             reference_matrices[f"matrices_{N}_sparse"] = (A, B)
             
-            # Element-wise product
             start = time.time()
             reference_results[f"elemwise_{N}_sparse"] = (A.multiply(B)).todense()
             reference_times["sparse"]["elemwise"].append(time.time() - start)
             
-            # Exponential
             start = time.time()
             expA = A.copy()
             expA.data = np.exp(expA.data)
             reference_times["sparse"]["exp"].append(time.time() - start)
             reference_results[f"exp_{N}_sparse"] = expA.todense()
             
-            # Mean
             start = time.time()
             reference_results[f"mean_{N}_sparse"] = np.array(A.mean(axis=1)).flatten()
             reference_times["sparse"]["mean"].append(time.time() - start)
             
-            # Matrix product
             start = time.time()
             reference_results[f"matprod_{N}_sparse"] = (A @ B).todense()
             reference_times["sparse"]["matprod"].append(time.time() - start)
+            
+            start = time.time()
+            n_components = min(N, 100)
+            U, S, VT = randomized_svd(A, n_components=n_components, random_state=0)
+            reference_results[f"svd_S_{N}_sparse"] = S
+            reference_times["sparse"]["svd"].append(time.time() - start)
         else:
             A = np.random.rand(N, N).astype(np.float64)
             B = np.random.rand(N, N).astype(np.float64)
             reference_matrices[f"matrices_{N}_dense"] = (A, B)
             
-            # Element-wise product
             start = time.time()
             reference_results[f"elemwise_{N}_dense"] = (A * B).astype(np.float64)
             reference_times["dense"]["elemwise"].append(time.time() - start)
             
-            # Exponential
             start = time.time()
             reference_results[f"exp_{N}_dense"] = np.exp(A).astype(np.float64)
             reference_times["dense"]["exp"].append(time.time() - start)
             
-            # Mean
             start = time.time()
             reference_results[f"mean_{N}_dense"] = np.mean(A, axis=1).astype(np.float64)
             reference_times["dense"]["mean"].append(time.time() - start)
             
-            # Matrix product
             start = time.time()
             reference_results[f"matprod_{N}_dense"] = np.dot(A, B).astype(np.float64)
             reference_times["dense"]["matprod"].append(time.time() - start)
             
-            # Inverse
             start = time.time()
             reference_results[f"inv_{N}_dense"] = np.linalg.inv(A).astype(np.float64)
             reference_times["dense"]["inv"].append(time.time() - start)
             
-            # SVD
             start = time.time()
-            U, S, VT = np.linalg.svd(A, full_matrices=True)
-            reference_results[f"svd_S_{N}_dense"] = S.astype(np.float64)
+            n_components = min(N, 100)
+            U, S, VT = randomized_svd(A, n_components=n_components, random_state=0)
+            reference_results[f"svd_S_{N}_dense"] = S
             reference_times["dense"]["svd"].append(time.time() - start)
 
-# Initialize timing and error lists
-for op in timings.values():
-    for key in op:
-        op[key] = []
-for op in sparse_timings.values():
-    for key in op:
-        op[key] = []
-for op in errors.values():
-    for key in op:
-        op[key] = []
-for op in sparse_errors.values():
-    for key in op:
-        op[key] = []
-
-# Run experiments (exclude CPU F64 for dense)
+# Run experiments
 for size_idx, N in enumerate(matrix_sizes):
-    # Dense experiments
-    run_experiments(np.float32, "F32", sparse=False, size_idx=size_idx)
-    if xp == cp:  # Run GPU F64 if CuPy is available
-        run_experiments(np.float64, "F64", sparse=False, size_idx=size_idx)
-    # Sparse experiments
-    run_experiments(np.float32, "F32", sparse=True, size_idx=size_idx)
-    run_experiments(np.float64, "F64", sparse=True, size_idx=size_idx)
+    for run_idx in range(num_runs):
+        run_experiments(np.float32, "F32", sparse=False, size_idx=size_idx, run_idx=run_idx)
+        if xp == cp:
+            run_experiments(np.float64, "F64", sparse=False, size_idx=size_idx, run_idx=run_idx)
+        run_experiments(np.float32, "F32", sparse=True, size_idx=size_idx, run_idx=run_idx)
+        run_experiments(np.float64, "F64", sparse=True, size_idx=size_idx, run_idx=run_idx)
 
 # Plotting
 operations = [
@@ -429,115 +366,331 @@ operations = [
     ("mean", "Means of the rows"),
     ("matprod", "Matrix product"),
     ("inv", "Inverse of a matrix"),
-    ("svd", "Singular Value Decomposition")
+    ("svd", "Randomized SVD")
 ]
 
-# Create output directory for plots
+sparse_operations = operations[:4] + [operations[5]]  # Exclude inverse
+
 Path("plots").mkdir(exist_ok=True)
 
-# Plot dense matrix timing results (absolute times with CPU F64 reference)
-plt.figure(figsize=(15, 10))
+# Define matrix sizes explicitly
+matrix_sizes = [1000, 2000, 3000, 4000, 5000]
+
+# Define color mapping
+color_map = {
+    'CPU': 'purple',
+    'GPU': 'blue'
+}
+
+# Check for GPU availability
+gpu_available = False
+try:
+    import cupy
+    if cupy.cuda.runtime.getDeviceCount() > 0:
+        gpu_available = True
+except ImportError:
+    pass
+
+# CPU Dense Timing (F64 Dense Baseline, CPU_F32)
+plt.figure(figsize=(20, 12))
 for i, (op_key, op_name) in enumerate(operations, 1):
     plt.subplot(2, 3, i)
-    plt.title(f"{op_name} on {os_name}\nCPU: {cpu_model}, GPU: {gpu_model} (Time)")
-    plt.xlabel("Matrix size n×n")
-    plt.ylabel("Time (seconds, log-scale)")
+    plt.title(f"{op_name} (CPU Dense, Time)", fontsize=12)
+    plt.xlabel("Size of Matrix (n×n)", fontsize=10)
+    plt.ylabel("Time (seconds, log-scale)", fontsize=10)
     plt.yscale("log")
-    plt.xticks(matrix_sizes)
+    plt.xticks(range(len(matrix_sizes)), matrix_sizes, fontsize=9)
     
+    # Collect min and max times for y-limits
+    all_times = []
+    if "CPU_F32" in timings[op_key]:
+        for t in timings[op_key]["CPU_F32"]:
+            if len(t) > 0:
+                all_times.extend(t)
     ref_times = reference_times["dense"][op_key]
-    plt.plot(matrix_sizes, ref_times, marker='x', label="CPU F64 Reference", color="black", linestyle='--')
-    if xp == cp:
-        plt.plot(matrix_sizes, timings[op_key]["GPU_F32"], marker='o', label="GPU F32", color="blue")
-        plt.plot(matrix_sizes, timings[op_key]["GPU_F64"], marker='^', label="GPU F64", color="red")
-        plt.plot(matrix_sizes, timings[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
-    else:
-        plt.plot(matrix_sizes, timings[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
+    all_times.extend(ref_times)
+    if all_times:
+        min_time = min(all_times) / 2
+        max_time = max(all_times) * 2
+        plt.ylim(min_time, max_time)
     
-    plt.legend()
-    plt.grid(True, which="both", ls="--")
+    # F64 Dense Baseline
+    plt.plot(range(len(matrix_sizes)), ref_times, 'x', label="F64 Dense Baseline", color="black", markersize=8)
+    
+    # CPU_F32 Box Plot
+    data = [t if len(t) > 0 else [0] * num_runs for t in timings[op_key]["CPU_F32"]]
+    plt.boxplot(data, positions=range(len(matrix_sizes)), widths=0.2, patch_artist=True, 
+                boxprops=dict(facecolor=color_map["CPU"], edgecolor='black'),
+                whiskerprops=dict(color='black'), capprops=dict(color='black'),
+                medianprops=dict(color='red'), showfliers=True)
+    
+    plt.legend(["F64 Dense Baseline", "CPU_F32"], fontsize=9, loc='upper left')
+    plt.grid(True, which="both", ls="--", alpha=0.7)
 
-plt.tight_layout()
-plt.savefig("plots/dense_matrix_timing_results.png")
+plt.tight_layout(pad=2.0)
+plt.savefig("plots/cpu_dense_timing_results.png", dpi=300)
 plt.close()
 
-# Plot dense matrix accuracy results
-plt.figure(figsize=(15, 10))
+# CPU Dense Accuracy (CPU_F32)
+plt.figure(figsize=(20, 12))
 for i, (op_key, op_name) in enumerate(operations, 1):
     plt.subplot(2, 3, i)
-    plt.title(f"{op_name} on {os_name}\nCPU: {cpu_model}, GPU: {gpu_model} (Relative Error)")
-    plt.xlabel("Matrix size n×n")
-    plt.ylabel("Relative Error (log-scale)")
+    plt.title(f"{op_name} (CPU Dense, Error)", fontsize=12)
+    plt.xlabel("Size of Matrix (n×n)", fontsize=10)
+    plt.ylabel("Relative Error (log-scale)", fontsize=10)
     plt.yscale("log")
-    plt.xticks(matrix_sizes)
+    plt.xticks(range(len(matrix_sizes)), matrix_sizes, fontsize=9)
     
-    if xp == cp:
-        plt.plot(matrix_sizes, errors[op_key]["GPU_F32"], marker='o', label="GPU F32", color="blue")
-        plt.plot(matrix_sizes, errors[op_key]["GPU_F64"], marker='^', label="GPU F64", color="red")
-        plt.plot(matrix_sizes, errors[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
-    else:
-        plt.plot(matrix_sizes, errors[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
+    # Collect min and max errors for y-limits
+    all_errors = []
+    if "CPU_F32" in errors[op_key]:
+        for e in errors[op_key]["CPU_F32"]:
+            if len(e) > 0:
+                all_errors.extend(e)
+    if all_errors:
+        min_error = max(min(all_errors) / 2, 1e-20)
+        max_error = max(all_errors) * 2
+        plt.ylim(min_error, max_error)
     
-    plt.legend()
-    plt.grid(True, which="both", ls="--")
+    # CPU_F32 Box Plot
+    data = [e if len(e) > 0 else [1e-20] * num_runs for e in errors[op_key]["CPU_F32"]]
+    plt.boxplot(data, positions=range(len(matrix_sizes)), widths=0.2, patch_artist=True, 
+                boxprops=dict(facecolor=color_map["CPU"], edgecolor='black'),
+                whiskerprops=dict(color='black'), capprops=dict(color='black'),
+                medianprops=dict(color='red'), showfliers=True)
+    
+    plt.legend(["CPU_F32"], fontsize=9, loc='upper left')
+    plt.grid(True, which="both", ls="--", alpha=0.7)
 
-plt.tight_layout()
-plt.savefig("plots/dense_matrix_accuracy_results.png")
+plt.tight_layout(pad=2.0)
+plt.savefig("plots/cpu_dense_accuracy_results.png", dpi=300)
 plt.close()
 
-# Plot sparse matrix timing results (absolute times with CPU F64 reference)
-plt.figure(figsize=(15, 7))
-sparse_operations = operations[:4]  # Exclude inverse and SVD for sparse
+# CPU Sparse Timing (F64 Sparse Baseline, CPU_F32)
+plt.figure(figsize=(20, 12))
 for i, (op_key, op_name) in enumerate(sparse_operations, 1):
-    plt.subplot(2, 2, i)
-    plt.title(f"{op_name} on {os_name}\nCPU: {cpu_model}, GPU: {gpu_model} (Sparse, Time)")
-    plt.xlabel("Matrix size n×n")
-    plt.ylabel("Time (seconds, log-scale)")
+    plt.subplot(2, 3, i)
+    plt.title(f"{op_name} (CPU Sparse, Time)", fontsize=12)
+    plt.xlabel("Size of Matrix (n×n)", fontsize=10)
+    plt.ylabel("Time (seconds, log-scale)", fontsize=10)
     plt.yscale("log")
-    plt.xticks(matrix_sizes)
+    plt.xticks(range(len(matrix_sizes)), matrix_sizes, fontsize=9)
     
+    # Collect min and max times for y-limits
+    all_times = []
+    if "CPU_F32" in sparse_timings[op_key]:
+        for t in sparse_timings[op_key]["CPU_F32"]:
+            if len(t) > 0:
+                all_times.extend(t)
     ref_times = reference_times["sparse"][op_key]
-    plt.plot(matrix_sizes, ref_times, marker='x', label="CPU F64 Reference", color="black", linestyle='--')
-    if xp == cp:
-        plt.plot(matrix_sizes, sparse_timings[op_key]["GPU_F32"], marker='o', label="GPU F32", color="blue")
-        plt.plot(matrix_sizes, sparse_timings[op_key]["GPU_F64"], marker='^', label="GPU F64", color="red")
-        plt.plot(matrix_sizes, sparse_timings[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
-        plt.plot(matrix_sizes, sparse_timings[op_key]["CPU_F64"], marker='d', label="CPU F64", color="green")
-    else:
-        plt.plot(matrix_sizes, sparse_timings[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
-        plt.plot(matrix_sizes, sparse_timings[op_key]["CPU_F64"], marker='d', label="CPU F64", color="green")
+    all_times.extend(ref_times)
+    if all_times:
+        min_time = min(all_times) / 2
+        max_time = max(all_times) * 2
+        plt.ylim(min_time, max_time)
     
-    plt.legend()
-    plt.grid(True, which="both", ls="--")
+    # F64 Sparse Baseline
+    plt.plot(range(len(matrix_sizes)), ref_times, 'x', label="F64 Sparse Baseline", color="black", markersize=8)
+    
+    # CPU_F32 Box Plot
+    data = [t if len(t) > 0 else [0] * num_runs for t in sparse_timings[op_key]["CPU_F32"]]
+    plt.boxplot(data, positions=range(len(matrix_sizes)), widths=0.2, patch_artist=True, 
+                boxprops=dict(facecolor=color_map["CPU"], edgecolor='black'),
+                whiskerprops=dict(color='black'), capprops=dict(color='black'),
+                medianprops=dict(color='red'), showfliers=True)
+    
+    plt.legend(["F64 Sparse Baseline", "CPU_F32"], fontsize=9, loc='upper left')
+    plt.grid(True, which="both", ls="--", alpha=0.7)
 
-plt.tight_layout()
-plt.savefig("plots/sparse_matrix_timing_results.png")
+plt.tight_layout(pad=2.0)
+plt.savefig("plots/cpu_sparse_timing_results.png", dpi=300)
 plt.close()
 
-# Plot sparse matrix accuracy results
-plt.figure(figsize=(15, 7))
+# CPU Sparse Accuracy (CPU_F32)
+plt.figure(figsize=(20, 12))
 for i, (op_key, op_name) in enumerate(sparse_operations, 1):
-    plt.subplot(2, 2, i)
-    plt.title(f"{op_name} on {os_name}\nCPU: {cpu_model}, GPU: {gpu_model} (Sparse, Relative Error)")
-    plt.xlabel("Matrix size n×n")
-    plt.ylabel("Relative Error (log-scale)")
+    plt.subplot(2, 3, i)
+    plt.title(f"{op_name} (CPU Sparse, Error)", fontsize=12)
+    plt.xlabel("Size of Matrix (n×n)", fontsize=10)
+    plt.ylabel("Relative Error (log-scale)", fontsize=10)
     plt.yscale("log")
-    plt.xticks(matrix_sizes)
+    plt.xticks(range(len(matrix_sizes)), matrix_sizes, fontsize=9)
     
-    if xp == cp:
-        plt.plot(matrix_sizes, sparse_errors[op_key]["GPU_F32"], marker='o', label="GPU F32", color="blue")
-        plt.plot(matrix_sizes, sparse_errors[op_key]["GPU_F64"], marker='^', label="GPU F64", color="red")
-        plt.plot(matrix_sizes, sparse_errors[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
-        plt.plot(matrix_sizes, sparse_errors[op_key]["CPU_F64"], marker='d', label="CPU F64", color="green")
-    else:
-        plt.plot(matrix_sizes, sparse_errors[op_key]["CPU_F32"], marker='s', label="CPU F32", color="purple")
-        plt.plot(matrix_sizes, sparse_errors[op_key]["CPU_F64"], marker='d', label="CPU F64", color="green")
+    # Collect min and max errors for y-limits
+    all_errors = []
+    if "CPU_F32" in sparse_errors[op_key]:
+        for e in sparse_errors[op_key]["CPU_F32"]:
+            if len(e) > 0:
+                all_errors.extend(e)
+    if all_errors:
+        min_error = max(min(all_errors) / 2, 1e-20)
+        max_error = max(all_errors) * 2
+        plt.ylim(min_error, max_error)
     
-    plt.legend()
-    plt.grid(True, which="both", ls="--")
+    # CPU_F32 Box Plot
+    data = [e if len(e) > 0 else [1e-20] * num_runs for e in sparse_errors[op_key]["CPU_F32"]]
+    plt.boxplot(data, positions=range(len(matrix_sizes)), widths=0.2, patch_artist=True, 
+                boxprops=dict(facecolor=color_map["CPU"], edgecolor='black'),
+                whiskerprops=dict(color='black'), capprops=dict(color='black'),
+                medianprops=dict(color='red'), showfliers=True)
+    
+    plt.legend(["CPU_F32"], fontsize=9, loc='upper left')
+    plt.grid(True, which="both", ls="--", alpha=0.7)
 
-plt.tight_layout()
-plt.savefig("plots/sparse_matrix_accuracy_results.png")
+plt.tight_layout(pad=2.0)
+plt.savefig("plots/cpu_sparse_accuracy_results.png", dpi=300)
 plt.close()
 
-print("\nPlots saved in 'plots' directory: dense_matrix_timing_results.png, dense_matrix_accuracy_results.png, sparse_matrix_timing_results.png, sparse_matrix_accuracy_results.png")
+# GPU Plots (only if GPU is available)
+if gpu_available:
+    # GPU Dense Timing (F64 Dense Baseline, GPU_F32)
+    plt.figure(figsize=(20, 12))
+    for i, (op_key, op_name) in enumerate(operations, 1):
+        plt.subplot(2, 3, i)
+        plt.title(f"{op_name} (GPU Dense, Time)", fontsize=12)
+        plt.xlabel("Size of Matrix (n×n)", fontsize=10)
+        plt.ylabel("Time (seconds, log-scale)", fontsize=10)
+        plt.yscale("log")
+        plt.xticks(range(len(matrix_sizes)), matrix_sizes, fontsize=9)
+        
+        # Collect min and max times for y-limits
+        all_times = []
+        if "GPU_F32" in timings[op_key]:
+            for t in timings[op_key]["GPU_F32"]:
+                if len(t) > 0:
+                    all_times.extend(t)
+        ref_times = reference_times["dense"][op_key]
+        all_times.extend(ref_times)
+        if all_times:
+            min_time = min(all_times) / 2
+            max_time = max(all_times) * 2
+            plt.ylim(min_time, max_time)
+        
+        # F64 Dense Baseline
+        plt.plot(range(len(matrix_sizes)), ref_times, 'x', label="F64 Dense Baseline", color="black", markersize=8)
+        
+        # GPU_F32 Box Plot
+        data = [t if len(t) > 0 else [0] * num_runs for t in timings[op_key]["GPU_F32"]]
+        plt.boxplot(data, positions=range(len(matrix_sizes)), widths=0.2, patch_artist=True, 
+                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black'),
+                    whiskerprops=dict(color='black'), capprops=dict(color='black'),
+                    medianprops=dict(color='red'), showfliers=True)
+        
+        plt.legend(["F64 Dense Baseline", "GPU_F32"], fontsize=9, loc='upper left')
+        plt.grid(True, which="both", ls="--", alpha=0.7)
+
+    plt.tight_layout(pad=2.0)
+    plt.savefig("plots/gpu_dense_timing_results.png", dpi=300)
+    plt.close()
+
+    # GPU Dense Accuracy (GPU_F32)
+    plt.figure(figsize=(20, 12))
+    for i, (op_key, op_name) in enumerate(operations, 1):
+        plt.subplot(2, 3, i)
+        plt.title(f"{op_name} (GPU Dense, Error)", fontsize=12)
+        plt.xlabel("Size of Matrix (n×n)", fontsize=10)
+        plt.ylabel("Relative Error (log-scale)", fontsize=10)
+        plt.yscale("log")
+        plt.xticks(range(len(matrix_sizes)), matrix_sizes, fontsize=9)
+        
+        # Collect min and max errors for y-limits
+        all_errors = []
+        if "GPU_F32" in errors[op_key]:
+            for e in errors[op_key]["GPU_F32"]:
+                if len(e) > 0:
+                    all_errors.extend(e)
+        if all_errors:
+            min_error = max(min(all_errors) / 2, 1e-20)
+            max_error = max(all_errors) * 2
+            plt.ylim(min_error, max_error)
+        
+        # GPU_F32 Box Plot
+        data = [e if len(e) > 0 else [1e-20] * num_runs for e in errors[op_key]["GPU_F32"]]
+        plt.boxplot(data, positions=range(len(matrix_sizes)), widths=0.2, patch_artist=True, 
+                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black'),
+                    whiskerprops=dict(color='black'), capprops=dict(color='black'),
+                    medianprops=dict(color='red'), showfliers=True)
+        
+        plt.legend(["GPU_F32"], fontsize=9, loc='upper left')
+        plt.grid(True, which="both", ls="--", alpha=0.7)
+
+    plt.tight_layout(pad=2.0)
+    plt.savefig("plots/gpu_dense_accuracy_results.png", dpi=300)
+    plt.close()
+
+    # GPU Sparse Timing (F64 Sparse Baseline, GPU_F32)
+    plt.figure(figsize=(20, 12))
+    for i, (op_key, op_name) in enumerate(sparse_operations, 1):
+        plt.subplot(2, 3, i)
+        plt.title(f"{op_name} (GPU Sparse, Time)", fontsize=12)
+        plt.xlabel("Size of Matrix (n×n)", fontsize=10)
+        plt.ylabel("Time (seconds, log-scale)", fontsize=10)
+        plt.yscale("log")
+        plt.xticks(range(len(matrix_sizes)), matrix_sizes, fontsize=9)
+        
+        # Collect min and max times for y-limits
+        all_times = []
+        if "GPU_F32" in sparse_timings[op_key]:
+            for t in sparse_timings[op_key]["GPU_F32"]:
+                if len(t) > 0:
+                    all_times.extend(t)
+        ref_times = reference_times["sparse"][op_key]
+        all_times.extend(ref_times)
+        if all_times:
+            min_time = min(all_times) / 2
+            max_time = max(all_times) * 2
+            plt.ylim(min_time, max_time)
+        
+        # F64 Sparse Baseline
+        plt.plot(range(len(matrix_sizes)), ref_times, 'x', label="F64 Sparse Baseline", color="black", markersize=8)
+        
+        # GPU_F32 Box Plot
+        data = [t if len(t) > 0 else [0] * num_runs for t in sparse_timings[op_key]["GPU_F32"]]
+        plt.boxplot(data, positions=range(len(matrix_sizes)), widths=0.2, patch_artist=True, 
+                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black'),
+                    whiskerprops=dict(color='black'), capprops=dict(color='black'),
+                    medianprops=dict(color='red'), showfliers=True)
+        
+        plt.legend(["F64 Sparse Baseline", "GPU_F32"], fontsize=9, loc='upper left')
+        plt.grid(True, which="both", ls="--", alpha=0.7)
+
+    plt.tight_layout(pad=2.0)
+    plt.savefig("plots/gpu_sparse_timing_results.png", dpi=300)
+    plt.close()
+
+    # GPU Sparse Accuracy (GPU_F32)
+    plt.figure(figsize=(20, 12))
+    for i, (op_key, op_name) in enumerate(sparse_operations, 1):
+        plt.subplot(2, 3, i)
+        plt.title(f"{op_name} (GPU Sparse, Error)", fontsize=12)
+        plt.xlabel("Size of Matrix (n×n)", fontsize=10)
+        plt.ylabel("Relative Error (log-scale)", fontsize=10)
+        plt.yscale("log")
+        plt.xticks(range(len(matrix_sizes)), matrix_sizes, fontsize=9)
+        
+        # Collect min and max errors for y-limits
+        all_errors = []
+        if "GPU_F32" in sparse_errors[op_key]:
+            for e in sparse_errors[op_key]["GPU_F32"]:
+                if len(e) > 0:
+                    all_errors.extend(e)
+        if all_errors:
+            min_error = max(min(all_errors) / 2, 1e-20)
+            max_error = max(all_errors) * 2
+            plt.ylim(min_error, max_error)
+        
+        # GPU_F32 Box Plot
+        data = [e if len(e) > 0 else [1e-20] * num_runs for e in sparse_errors[op_key]["GPU_F32"]]
+        plt.boxplot(data, positions=range(len(matrix_sizes)), widths=0.2, patch_artist=True, 
+                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black'),
+                    whiskerprops=dict(color='black'), capprops=dict(color='black'),
+                    medianprops=dict(color='red'), showfliers=True)
+        
+        plt.legend(["GPU_F32"], fontsize=9, loc='upper left')
+        plt.grid(True, which="both", ls="--", alpha=0.7)
+
+    plt.tight_layout(pad=2.0)
+    plt.savefig("plots/gpu_sparse_accuracy_results.png", dpi=300)
+    plt.close()
+
+print("\nPlots saved in 'plots' directory.")
