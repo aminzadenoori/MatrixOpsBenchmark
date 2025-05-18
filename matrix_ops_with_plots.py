@@ -376,10 +376,18 @@ Path("plots").mkdir(exist_ok=True)
 # Define matrix sizes explicitly
 matrix_sizes = [1000, 2000, 3000, 4000, 5000]
 
-# Define color mapping
+# Define color and marker mapping
 color_map = {
-    'CPU': 'purple',
-    'GPU': 'blue'
+    'CPU_F32': 'purple',
+    'CPU_F64': 'green',
+    'GPU_F32': 'blue',
+    'GPU_F64': 'cyan'
+}
+marker_map = {
+    'CPU_F32': 'o',
+    'CPU_F64': 'x',
+    'GPU_F32': '^',
+    'GPU_F64': 's'
 }
 
 # Check for GPU availability
@@ -391,45 +399,107 @@ try:
 except ImportError:
     pass
 
-# CPU Dense Timing (F64 Dense Baseline, CPU_F32)
+# Combined CPU and GPU Dense Timing Plot
 plt.figure(figsize=(20, 12))
 for i, (op_key, op_name) in enumerate(operations, 1):
     plt.subplot(2, 3, i)
-    plt.title(f"{op_name} ({os_name}, CPU, Dense, Time)", fontsize=12)
+    plt.title(f"{op_name} ({os_name}, Dense, Time)", fontsize=12)
     plt.xlabel("Size of Matrix (n×n)", fontsize=10)
     plt.ylabel("Time (seconds, log-scale)", fontsize=10)
     plt.yscale("log")
     plt.xticks(matrix_sizes, matrix_sizes, fontsize=9)
-    
+
     # Collect min and max times for y-limits
     all_times = []
-    if "CPU_F32" in timings[op_key]:
-        for t in timings[op_key]["CPU_F32"]:
-            if len(t) > 0:
-                all_times.extend(t)
+    for key in ["CPU_F32", "GPU_F32", "GPU_F64"]:
+        if key in timings[op_key]:
+            for t in timings[op_key][key]:
+                if len(t) > 0:
+                    all_times.extend(t)
     ref_times = reference_times["dense"][op_key]
     all_times.extend(ref_times)
     if all_times:
         min_time = min(all_times) / 2
         max_time = max(all_times) * 2
         plt.ylim(min_time, max_time)
-    
-    # F64 Dense Baseline
-    plt.plot(matrix_sizes, ref_times, 'x', label=f"{os_name} CPU F64 Dense Baseline", color="black", markersize=8)
-    
-    # CPU_F32 Box Plot
-    data = [t if len(t) > 0 else [0] * num_runs for t in timings[op_key]["CPU_F32"]]
-    plt.boxplot(data, positions=matrix_sizes, widths=200, patch_artist=True,
-                boxprops=dict(facecolor=color_map["CPU"], edgecolor='black'),
-                whiskerprops=dict(color='black'), capprops=dict(color='black'),
-                medianprops=dict(color='red'), showfliers=True)
-    
-    plt.legend([f"{os_name} CPU F64 Dense Baseline", f"{os_name} CPU F32 Dense"], fontsize=9, loc='upper left')
+
+    # Plot mean times
+    # CPU_F64 (Dense Baseline)
+    plt.plot(matrix_sizes, ref_times, color=color_map["CPU_F64"], marker=marker_map["CPU_F64"], 
+             label=f"{os_name} CPU F64 Dense Baseline", linestyle='-', markersize=8)
+
+    # CPU_F32
+    mean_times = [np.mean(t) if len(t) > 0 else 0 for t in timings[op_key]["CPU_F32"]]
+    plt.plot(matrix_sizes, mean_times, color=color_map["CPU_F32"], marker=marker_map["CPU_F32"], 
+             label=f"{os_name} CPU F32 Dense", linestyle='-', markersize=8)
+
+    # GPU_F32 and GPU_F64 (if available)
+    if gpu_available:
+        for key in ["GPU_F32", "GPU_F64"]:
+            mean_times = [np.mean(t) if len(t) > 0 else 0 for t in timings[op_key][key]]
+            plt.plot(matrix_sizes, mean_times, color=color_map[key], marker=marker_map[key], 
+                     label=f"{os_name} {key} Dense", linestyle='-', markersize=8)
+
+    plt.legend(fontsize=9, loc='upper left')
     plt.grid(True, which="both", ls="--", alpha=0.7)
 
-plt.figtext(0.5, 0.01, f"Timing for {os_name} CPU Dense Matrices", ha="center", fontsize=12, wrap=True)
+plt.figtext(0.5, 0.01, f"Timing for {os_name} CPU and GPU Dense Matrices", ha="center", fontsize=12, wrap=True)
 plt.tight_layout(pad=2.0, rect=[0, 0.05, 1, 1])
-plt.savefig("plots/cpu_dense_timing_results.png", dpi=300)
+plt.savefig("plots/cpu_gpu_dense_timing_results.png", dpi=300)
+plt.close()
+
+# Combined CPU and GPU Sparse Timing Plot
+plt.figure(figsize=(20, 12))
+for i, (op_key, op_name) in enumerate(sparse_operations, 1):
+    plt.subplot(2, 3, i)
+    plt.title(f"{op_name} ({os_name}, Sparse, Time)", fontsize=12)
+    plt.xlabel("Size of Matrix (n×n)", fontsize=10)
+    plt.ylabel("Time (seconds, log-scale)", fontsize=10)
+    plt.yscale("log")
+    plt.xticks(matrix_sizes, matrix_sizes, fontsize=9)
+
+    # Collect min and max times for y-limits
+    all_times = []
+    for key in ["CPU_F32", "CPU_F64", "GPU_F32", "GPU_F64"]:
+        if key in sparse_timings[op_key]:
+            for t in sparse_timings[op_key][key]:
+                if len(t) > 0:
+                    all_times.extend(t)
+    ref_times = reference_times["sparse"][op_key]
+    all_times.extend(ref_times)
+    if all_times:
+        min_time = min(all_times) / 2
+        max_time = max(all_times) * 2
+        plt.ylim(min_time, max_time)
+
+    # Plot mean times
+    # CPU_F64 (Sparse Baseline)
+    plt.plot(matrix_sizes, ref_times, color=color_map["CPU_F64"], marker=marker_map["CPU_F64"], 
+             label=f"{os_name} CPU F64 Sparse Baseline", linestyle='-', markersize=8)
+
+    # CPU_F32
+    mean_times = [np.mean(t) if len(t) > 0 else 0 for t in sparse_timings[op_key]["CPU_F32"]]
+    plt.plot(matrix_sizes, mean_times, color=color_map["CPU_F32"], marker=marker_map["CPU_F32"], 
+             label=f"{os_name} CPU F32 Sparse", linestyle='-', markersize=8)
+
+    # CPU_F64
+    mean_times = [np.mean(t) if len(t) > 0 else 0 for t in sparse_timings[op_key]["CPU_F64"]]
+    plt.plot(matrix_sizes, mean_times, color=color_map["CPU_F64"], marker=marker_map["CPU_F64"], 
+             label=f"{os_name} CPU F64 Sparse", linestyle='--', markersize=8)
+
+    # GPU_F32 and GPU_F64 (if available)
+    if gpu_available:
+        for key in ["GPU_F32", "GPU_F64"]:
+            mean_times = [np.mean(t) if len(t) > 0 else 0 for t in sparse_timings[op_key][key]]
+            plt.plot(matrix_sizes, mean_times, color=color_map[key], marker=marker_map[key], 
+                     label=f"{os_name} {key} Sparse", linestyle='-', markersize=8)
+
+    plt.legend(fontsize=9, loc='upper left')
+    plt.grid(True, which="both", ls="--", alpha=0.7)
+
+plt.figtext(0.5, 0.01, f"Timing for {os_name} CPU and GPU Sparse Matrices", ha="center", fontsize=12, wrap=True)
+plt.tight_layout(pad=2.0, rect=[0, 0.05, 1, 1])
+plt.savefig("plots/cpu_gpu_sparse_timing_results.png", dpi=300)
 plt.close()
 
 # CPU Dense Accuracy (CPU_F32)
@@ -456,7 +526,7 @@ for i, (op_key, op_name) in enumerate(operations, 1):
     # CPU_F32 Box Plot
     data = [e if len(e) > 0 else [1e-20] * num_runs for e in errors[op_key]["CPU_F32"]]
     plt.boxplot(data, positions=matrix_sizes, widths=200, patch_artist=True,
-                boxprops=dict(facecolor=color_map["CPU"], edgecolor='black'),
+                boxprops=dict(facecolor=color_map["CPU_F32"], edgecolor='black'),
                 whiskerprops=dict(color='black'), capprops=dict(color='black'),
                 medianprops=dict(color='red'), showfliers=True)
     
@@ -468,48 +538,7 @@ plt.tight_layout(pad=2.0, rect=[0, 0.05, 1, 1])
 plt.savefig("plots/cpu_dense_accuracy_results.png", dpi=300)
 plt.close()
 
-# CPU Sparse Timing (F64 Sparse Baseline, CPU_F32)
-plt.figure(figsize=(20, 12))
-for i, (op_key, op_name) in enumerate(sparse_operations, 1):
-    plt.subplot(2, 3, i)
-    plt.title(f"{op_name} ({os_name}, CPU, Sparse, Time)", fontsize=12)
-    plt.xlabel("Size of Matrix (n×n)", fontsize=10)
-    plt.ylabel("Time (seconds, log-scale)", fontsize=10)
-    plt.yscale("log")
-    plt.xticks(matrix_sizes, matrix_sizes, fontsize=9)
-    
-    # Collect min and max times for y-limits
-    all_times = []
-    if "CPU_F32" in sparse_timings[op_key]:
-        for t in sparse_timings[op_key]["CPU_F32"]:
-            if len(t) > 0:
-                all_times.extend(t)
-    ref_times = reference_times["sparse"][op_key]
-    all_times.extend(ref_times)
-    if all_times:
-        min_time = min(all_times) / 2
-        max_time = max(all_times) * 2
-        plt.ylim(min_time, max_time)
-    
-    # F64 Sparse Baseline
-    plt.plot(matrix_sizes, ref_times, 'x', label=f"{os_name} CPU F64 Sparse Baseline", color="black", markersize=8)
-    
-    # CPU_F32 Box Plot
-    data = [t if len(t) > 0 else [0] * num_runs for t in sparse_timings[op_key]["CPU_F32"]]
-    plt.boxplot(data, positions=matrix_sizes, widths=200, patch_artist=True,
-                boxprops=dict(facecolor=color_map["CPU"], edgecolor='black'),
-                whiskerprops=dict(color='black'), capprops=dict(color='black'),
-                medianprops=dict(color='red'), showfliers=True)
-    
-    plt.legend([f"{os_name} CPU F64 Sparse Baseline", f"{os_name} CPU F32 Sparse"], fontsize=9, loc='upper left')
-    plt.grid(True, which="both", ls="--", alpha=0.7)
-
-plt.figtext(0.5, 0.01, f"Timing for {os_name} CPU Sparse Matrices", ha="center", fontsize=12, wrap=True)
-plt.tight_layout(pad=2.0, rect=[0, 0.05, 1, 1])
-plt.savefig("plots/cpu_sparse_timing_results.png", dpi=300)
-plt.close()
-
-# CPU Sparse Accuracy (CPU_F32)
+# CPU Sparse Accuracy (CPU_F32, CPU_F64)
 plt.figure(figsize=(20, 12))
 for i, (op_key, op_name) in enumerate(sparse_operations, 1):
     plt.subplot(2, 3, i)
@@ -521,23 +550,31 @@ for i, (op_key, op_name) in enumerate(sparse_operations, 1):
     
     # Collect min and max errors for y-limits
     all_errors = []
-    if "CPU_F32" in sparse_errors[op_key]:
-        for e in sparse_errors[op_key]["CPU_F32"]:
-            if len(e) > 0:
-                all_errors.extend(e)
+    for key in ["CPU_F32", "CPU_F64"]:
+        if key in sparse_errors[op_key]:
+            for e in sparse_errors[op_key][key]:
+                if len(e) > 0:
+                    all_errors.extend(e)
     if all_errors:
         min_error = max(min(all_errors) / 2, 1e-20)
         max_error = max(all_errors) * 2
         plt.ylim(min_error, max_error)
     
     # CPU_F32 Box Plot
-    data = [e if len(e) > 0 else [1e-20] * num_runs for e in sparse_errors[op_key]["CPU_F32"]]
-    plt.boxplot(data, positions=matrix_sizes, widths=200, patch_artist=True,
-                boxprops=dict(facecolor=color_map["CPU"], edgecolor='black'),
+    data_f32 = [e if len(e) > 0 else [1e-20] * num_runs for e in sparse_errors[op_key]["CPU_F32"]]
+    plt.boxplot(data_f32, positions=[x-100 for x in matrix_sizes], widths=100, patch_artist=True,
+                boxprops=dict(facecolor=color_map["CPU_F32"], edgecolor='black'),
                 whiskerprops=dict(color='black'), capprops=dict(color='black'),
                 medianprops=dict(color='red'), showfliers=True)
     
-    plt.legend([f"{os_name} CPU F32 Sparse"], fontsize=9, loc='upper left')
+    # CPU_F64 Box Plot
+    data_f64 = [e if len(e) > 0 else [1e-20] * num_runs for e in sparse_errors[op_key]["CPU_F64"]]
+    plt.boxplot(data_f64, positions=[x+100 for x in matrix_sizes], widths=100, patch_artist=True,
+                boxprops=dict(facecolor=color_map["CPU_F64"], edgecolor='black'),
+                whiskerprops=dict(color='black'), capprops=dict(color='black'),
+                medianprops=dict(color='red'), showfliers=True)
+    
+    plt.legend([f"{os_name} CPU F32 Sparse", f"{os_name} CPU F64 Sparse"], fontsize=9, loc='upper left')
     plt.grid(True, which="both", ls="--", alpha=0.7)
 
 plt.figtext(0.5, 0.01, f"Accuracy for {os_name} CPU Sparse Matrices", ha="center", fontsize=12, wrap=True)
@@ -545,59 +582,8 @@ plt.tight_layout(pad=2.0, rect=[0, 0.05, 1, 1])
 plt.savefig("plots/cpu_sparse_accuracy_results.png", dpi=300)
 plt.close()
 
-# GPU Plots (only if GPU is available)
+# GPU Dense Accuracy (GPU_F32, GPU_F64) - only if GPU is available
 if gpu_available:
-    # GPU Dense Timing (F64 Dense Baseline, GPU_F32, GPU_F64)
-    plt.figure(figsize=(20, 12))
-    for i, (op_key, op_name) in enumerate(operations, 1):
-        plt.subplot(2, 3, i)
-        plt.title(f"{op_name} ({os_name}, GPU, Dense, Time)", fontsize=12)
-        plt.xlabel("Size of Matrix (n×n)", fontsize=10)
-        plt.ylabel("Time (seconds, log-scale)", fontsize=10)
-        plt.yscale("log")
-        plt.xticks(matrix_sizes, matrix_sizes, fontsize=9)
-        
-        # Collect min and max times for y-limits
-        all_times = []
-        for key in ["GPU_F32", "GPU_F64"]:
-            if key in timings[op_key]:
-                for t in timings[op_key][key]:
-                    if len(t) > 0:
-                        all_times.extend(t)
-        ref_times = reference_times["dense"][op_key]
-        all_times.extend(ref_times)
-        if all_times:
-            min_time = min(all_times) / 2
-            max_time = max(all_times) * 2
-            plt.ylim(min_time, max_time)
-        
-        # F64 Dense Baseline
-        plt.plot(matrix_sizes, ref_times, 'x', label=f"{os_name} CPU F64 Dense Baseline", color="black", markersize=8)
-        
-        # GPU_F32 Box Plot
-        data_f32 = [t if len(t) > 0 else [0] * num_runs for t in timings[op_key]["GPU_F32"]]
-        plt.boxplot(data_f32, positions=[x-100 for x in matrix_sizes], widths=100, patch_artist=True,
-                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black', alpha=0.7),
-                    whiskerprops=dict(color='black'), capprops=dict(color='black'),
-                    medianprops=dict(color='red'), showfliers=True)
-        
-        # GPU_F64 Box Plot
-        data_f64 = [t if len(t) > 0 else [0] * num_runs for t in timings[op_key]["GPU_F64"]]
-        plt.boxplot(data_f64, positions=[x+100 for x in matrix_sizes], widths=100, patch_artist=True,
-                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black', alpha=0.3),
-                    whiskerprops=dict(color='black'), capprops=dict(color='black'),
-                    medianprops=dict(color='red'), showfliers=True)
-        
-        plt.legend([f"{os_name} CPU F64 Dense Baseline", f"{os_name} GPU F32 Dense", f"{os_name} GPU F64 Dense"], 
-                   fontsize=9, loc='upper left')
-        plt.grid(True, which="both", ls="--", alpha=0.7)
-
-    plt.figtext(0.5, 0.01, f"Timing for {os_name} GPU Dense Matrices", ha="center", fontsize=12, wrap=True)
-    plt.tight_layout(pad=2.0, rect=[0, 0.05, 1, 1])
-    plt.savefig("plots/gpu_dense_timing_results.png", dpi=300)
-    plt.close()
-
-    # GPU Dense Accuracy (GPU_F32, GPU_F64)
     plt.figure(figsize=(20, 12))
     for i, (op_key, op_name) in enumerate(operations, 1):
         plt.subplot(2, 3, i)
@@ -622,14 +608,14 @@ if gpu_available:
         # GPU_F32 Box Plot
         data_f32 = [e if len(e) > 0 else [1e-20] * num_runs for e in errors[op_key]["GPU_F32"]]
         plt.boxplot(data_f32, positions=[x-100 for x in matrix_sizes], widths=100, patch_artist=True,
-                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black', alpha=0.7),
+                    boxprops=dict(facecolor=color_map["GPU_F32"], edgecolor='black'),
                     whiskerprops=dict(color='black'), capprops=dict(color='black'),
                     medianprops=dict(color='red'), showfliers=True)
         
         # GPU_F64 Box Plot
         data_f64 = [e if len(e) > 0 else [1e-20] * num_runs for e in errors[op_key]["GPU_F64"]]
-        plt.boxplot(data_f64, positions=[x-100 for x in matrix_sizes], widths=100, patch_artist=True,
-                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black', alpha=0.3),
+        plt.boxplot(data_f64, positions=[x+100 for x in matrix_sizes], widths=100, patch_artist=True,
+                    boxprops=dict(facecolor=color_map["GPU_F64"], edgecolor='black'),
                     whiskerprops=dict(color='black'), capprops=dict(color='black'),
                     medianprops=dict(color='red'), showfliers=True)
         
@@ -641,57 +627,8 @@ if gpu_available:
     plt.savefig("plots/gpu_dense_accuracy_results.png", dpi=300)
     plt.close()
 
-    # GPU Sparse Timing (F64 Sparse Baseline, GPU_F32, GPU_F64)
-    plt.figure(figsize=(20, 12))
-    for i, (op_key, op_name) in enumerate(sparse_operations, 1):
-        plt.subplot(2, 3, i)
-        plt.title(f"{op_name} ({os_name}, GPU, Sparse, Time)", fontsize=12)
-        plt.xlabel("Size of Matrix (n×n)", fontsize=10)
-        plt.ylabel("Time (seconds, log-scale)", fontsize=10)
-        plt.yscale("log")
-        plt.xticks(matrix_sizes, matrix_sizes, fontsize=9)
-        
-        # Collect min and max times for y-limits
-        all_times = []
-        for key in ["GPU_F32", "GPU_F64"]:
-            if key in sparse_timings[op_key]:
-                for t in sparse_timings[op_key][key]:
-                    if len(t) > 0:
-                        all_times.extend(t)
-        ref_times = reference_times["sparse"][op_key]
-        all_times.extend(ref_times)
-        if all_times:
-            min_time = min(all_times) / 2
-            max_time = max(all_times) * 2
-            plt.ylim(min_time, max_time)
-        
-        # F64 Sparse Baseline
-        plt.plot(matrix_sizes, ref_times, 'x', label=f"{os_name} CPU F64 Sparse Baseline", color="black", markersize=8)
-        
-        # GPU_F32 Box Plot
-        data_f32 = [t if len(t) > 0 else [0] * num_runs for t in sparse_timings[op_key]["GPU_F32"]]
-        plt.boxplot(data_f32, positions=[x-100 for x in matrix_sizes], widths=100, patch_artist=True,
-                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black', alpha=0.7),
-                    whiskerprops=dict(color='black'), capprops=dict(color='black'),
-                    medianprops=dict(color='red'), showfliers=True)
-        
-        # GPU_F64 Box Plot
-        data_f64 = [t if len(t) > 0 else [0] * num_runs for t in sparse_timings[op_key]["GPU_F64"]]
-        plt.boxplot(data_f64, positions=[x+100 for x in matrix_sizes], widths=100, patch_artist=True,
-                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black', alpha=0.3),
-                    whiskerprops=dict(color='black'), capprops=dict(color='black'),
-                    medianprops=dict(color='red'), showfliers=True)
-        
-        plt.legend([f"{os_name} CPU F64 Sparse Baseline", f"{os_name} GPU F32 Sparse", f"{os_name} GPU F64 Sparse"], 
-                   fontsize=9, loc='upper left')
-        plt.grid(True, which="both", ls="--", alpha=0.7)
-
-    plt.figtext(0.5, 0.01, f"Timing for {os_name} GPU Sparse Matrices", ha="center", fontsize=12, wrap=True)
-    plt.tight_layout(pad=2.0, rect=[0, 0.05, 1, 1])
-    plt.savefig("plots/gpu_sparse_timing_results.png", dpi=300)
-    plt.close()
-
-    # GPU Sparse Accuracy (GPU_F32, GPU_F64)
+# GPU Sparse Accuracy (GPU_F32, GPU_F64) - only if GPU is available
+if gpu_available:
     plt.figure(figsize=(20, 12))
     for i, (op_key, op_name) in enumerate(sparse_operations, 1):
         plt.subplot(2, 3, i)
@@ -716,14 +653,14 @@ if gpu_available:
         # GPU_F32 Box Plot
         data_f32 = [e if len(e) > 0 else [1e-20] * num_runs for e in sparse_errors[op_key]["GPU_F32"]]
         plt.boxplot(data_f32, positions=[x-100 for x in matrix_sizes], widths=100, patch_artist=True,
-                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black', alpha=0.7),
+                    boxprops=dict(facecolor=color_map["GPU_F32"], edgecolor='black'),
                     whiskerprops=dict(color='black'), capprops=dict(color='black'),
                     medianprops=dict(color='red'), showfliers=True)
         
         # GPU_F64 Box Plot
         data_f64 = [e if len(e) > 0 else [1e-20] * num_runs for e in sparse_errors[op_key]["GPU_F64"]]
         plt.boxplot(data_f64, positions=[x+100 for x in matrix_sizes], widths=100, patch_artist=True,
-                    boxprops=dict(facecolor=color_map["GPU"], edgecolor='black', alpha=0.3),
+                    boxprops=dict(facecolor=color_map["GPU_F64"], edgecolor='black'),
                     whiskerprops=dict(color='black'), capprops=dict(color='black'),
                     medianprops=dict(color='red'), showfliers=True)
         
