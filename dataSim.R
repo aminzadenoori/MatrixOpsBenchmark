@@ -8,7 +8,7 @@ library(ggplot2)
 params <- newSplatParams(
   nGenes = 1000,
   batchCells = 200,
-  group.prob = c(0.6, 0.4),
+  group.prob = c(0.6, 0.2 ,0.2),
   de.prob = 0.2
 )
 
